@@ -1,0 +1,1 @@
+make minimaps from .bsps
