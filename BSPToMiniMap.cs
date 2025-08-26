@@ -1,21 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Text.Json;
-using System.Windows;
+using System.Threading;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Q3MinimapGenerator
 {
-
-
-
     public static class BSPToMiniMap
     {
         const int MAX_QPATH = 64;		// max length of a quake game pathname
@@ -203,30 +199,39 @@ namespace Q3MinimapGenerator
         }
 
         static JsonSerializerOptions jsonOpts = new JsonSerializerOptions() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString | System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
-        public static readonly string minimapsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JKWatcher", "images", "tinymaps");
+        public static readonly string minimapsPathDefault = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "minimaps");
 
         public static MiniMapMeta DecodeMiniMapMeta(string data)
         {
             return JsonSerializer.Deserialize<MiniMapMeta>(data, jsonOpts);
         }
 
-        public static unsafe void MakeMiniMap(string mapNameClean,byte[] bspData, float pixelsPerUnit = 0.1f, int maxWidth = 4000, int maxHeight = 4000, int extraBorderUnits = 100, Func<string,bool> alreadyExistOverwriteCallback = null)
+        public static unsafe void MakeMiniMap(string mapNameClean, byte[] bspData, MiniMapRequest request = default)
         {
+            string minimapsPath = request.OutputFolderPath ?? minimapsPathDefault;
+            float pixelsPerUnit = request.PixelsPerUnit;
+            int maxWidth = request.MaxWidth;
+            int maxHeight = request.MaxHeight;
+            int extraBorderUnits = request.ExtraBorderUnits;
+            MiniMapAxisPlane requestedAxisPlane = request.AxisPlane;
+            bool makeMeta = request.MakeMeta;
+            var predicate = request.Predicate;
+            Action<float> progressCallback = request.ProgressCallback;
+            CancellationToken? cancellationToken = request.CancellationToken;
+
             bool isQ3 = false;
             string minimapPath = Path.Combine(minimapsPath, mapNameClean);
-            string propsJsonFilePath = Path.Combine(minimapPath, "meta.json");
             //string xyPath = Path.Combine(minimapPath, "xy.png");
             //string xzPath = Path.Combine(minimapPath, "xz.png");
             //string yzPath = Path.Combine(minimapPath, "yz.png");
 
-            if (File.Exists(propsJsonFilePath))
-            {
-                //return;
-                if (alreadyExistOverwriteCallback == null || !alreadyExistOverwriteCallback($"Minimap for {mapNameClean} seems to already exist. Overwrite?"))
-                {
-                    return;
-                }
+            FileInfo[] files = null;
+            if (new DirectoryInfo(minimapPath) is { Exists: true } d && d.GetFiles() is { Length: > 0 } f) {
+                files = f;
             }
+            bool doProcess = predicate?.Invoke(mapNameClean, files) ?? true;
+            if (!doProcess)
+                return;
 
             using (MemoryStream ms = new MemoryStream(bspData))
             {
@@ -467,6 +472,9 @@ namespace Q3MinimapGenerator
 
                     for(int axis = 0; axis < 3; axis++)
                     {
+                        if (((int)requestedAxisPlane & (1<<axis)) == 0)
+                            continue;
+
                         // Do all 3 axes
                         float zValueScale = 1.0f / (maxZ-minZ);
                         float zValueOffset = -minZ;
@@ -517,14 +525,20 @@ namespace Q3MinimapGenerator
                                 break;
                         }
 
+                        int percent = 0;
+                        float totalActions = xResHere * yResHere;
+
                         float[] pixelData = new float[xResHere * yResHere];
                         float[] pixelDataDivider = new float[xResHere * yResHere];
 
+                        cancellationToken?.ThrowIfCancellationRequested();
+
                         Parallel.For(0, yResHere, new ParallelOptions() {MaxDegreeOfParallelism= Environment.ProcessorCount/2 }, (y) =>
                         {
+                            cancellationToken?.ThrowIfCancellationRequested();
                         //for(int y = 0; y < yRes; y++)
                         //{
-                            for(int x = 0; x < xResHere; x++)
+                            for(int x = 0; x < xResHere; x++, Interlocked.Increment(ref percent), progressCallback?.Invoke(percent / totalActions))
                             {
                                 Vector3 pixelWorldCoordinate = new Vector3() { X = (float)(x /*xResHere - x - 1*/) / (float)xResHere * xRangeHere + imgMinXHere, Y = (float)(yResHere - y - 1) / (float)yResHere * yRangeHere + imgMinYHere };
 
@@ -569,51 +583,59 @@ namespace Q3MinimapGenerator
 
                         //float[] pixelDiffData = new float[xRes * yRes];
 
+                        cancellationToken?.ThrowIfCancellationRequested();
 
-
-                        Bitmap bitmap = new Bitmap(xResHere, yResHere, PixelFormat.Format32bppArgb);
-                        ByteImage img = Helpers.BitmapToByteArray(bitmap);
-                        bitmap.Dispose();
-
-                        // Kinda edge detection
-                        for (int y = 0; y < yResHere; y++)
+                        var image = new Image<La16>(xResHere, yResHere);
+                        image.ProcessPixelRows(processor =>
                         {
-                            for (int x = 0; x < xResHere; x++)
+                            // Kinda edge detection
+                            for (int y = 0; y < processor.Height; y++)
                             {
-                                if(pixelData[y * xResHere + x] > 0)
+                                var pixelRow = processor.GetRowSpan(y);
+                                for (int x = 0; x < pixelRow.Length; x++)
                                 {
-                                    byte color = (byte)Math.Clamp(255.0f * (pixelData[y * xResHere + x]/pixelDataDivider[y * xResHere + x] - 1.0f), 0, 255);
-                                    img.imageData[y * img.stride + x * 4] = Math.Max(img.imageData[y * img.stride + x * 4], color);
-                                    img.imageData[y * img.stride + x * 4 + 1] = Math.Max(img.imageData[y * img.stride + x * 4 + 1], color);
-                                    img.imageData[y * img.stride + x * 4 + 2] = Math.Max(img.imageData[y * img.stride + x * 4 + 2], color);
-                                    img.imageData[y * img.stride + x * 4 + 3] = 255;
-                                }
-                                for(int yJitter = Math.Max(0,y-1);yJitter < Math.Min(y + 1, yResHere); yJitter++)
-                                {
-                                    for (int xJitter = Math.Max(0, x - 1); xJitter < Math.Min(x + 1, xResHere); xJitter++)
+                                    if (pixelData[y * xResHere + x] > 0)
                                     {
-                                        float diff = pixelData[yJitter * xResHere + xJitter]/ Math.Max(1f,pixelDataDivider[yJitter * xResHere + xJitter]) - pixelData[y * xResHere + x]/ Math.Max(1f, pixelDataDivider[y * xResHere + x]);
-                                        if (diff != 0)
+                                        byte color = (byte)Math.Clamp(255.0f * (pixelData[y * xResHere + x] / pixelDataDivider[y * xResHere + x] - 1.0f), 0, 255);
+
+                                        ref var pixel = ref pixelRow[x];
+                                        pixel.L = Math.Max(pixel.L, color);
+                                        pixel.A = 255;
+                                    }
+                                    for (int yJitter = Math.Max(0, y - 1); yJitter < Math.Min(y + 1, yResHere); yJitter++)
+                                    {
+                                        for (int xJitter = Math.Max(0, x - 1); xJitter < Math.Min(x + 1, xResHere); xJitter++)
                                         {
-                                            byte delta = (byte)Math.Clamp(255.0f*Math.Pow(Math.Abs(diff),0.22f),0,255);
-                                            //pixelDiffData[y * xRes + x] = 1.0f;
-                                            img.imageData[y * img.stride + x*4] = Math.Max(img.imageData[y * img.stride + x * 4], delta);
-                                            img.imageData[y * img.stride + x*4+1] = Math.Max(img.imageData[y * img.stride + x * 4 + 1], delta);
-                                            img.imageData[y * img.stride + x*4+2] = Math.Max(img.imageData[y * img.stride + x * 4 + 2], delta);
-                                            img.imageData[y * img.stride + x*4+3] = 255;
+                                            float diff = pixelData[yJitter * xResHere + xJitter] / Math.Max(1f, pixelDataDivider[yJitter * xResHere + xJitter]) - pixelData[y * xResHere + x] / Math.Max(1f, pixelDataDivider[y * xResHere + x]);
+                                            if (diff != 0)
+                                            {
+                                                byte delta = (byte)Math.Clamp(255.0f * Math.Pow(Math.Abs(diff), 0.22f), 0, 255);
+
+                                                ref var pixel = ref pixelRow[x];
+                                                pixel.L = Math.Max(pixel.L, delta);
+                                                pixel.A = 255;
+                                            }
                                         }
                                     }
                                 }
-
                             }
-                        }
+                        });
 
-                        bitmap = Helpers.ByteArrayToBitmap(img);
-                        bitmap.Save(Path.Combine(minimapPath,$"{axisName}.png"));
-                        bitmap.Dispose();
+                        string imagePath = request.ImageFilePathFormatter?.Invoke(minimapPath, axisName, miniMapMeta);
+                        if (imagePath == null)
+                            imagePath = Path.Combine(minimapPath, $"{axisName}.png");
+                        image.Save(imagePath);
+                        image.Dispose();
                     }
 
-                    File.WriteAllText(propsJsonFilePath, JsonSerializer.Serialize(miniMapMeta, jsonOpts));
+                    if (makeMeta)
+                    {
+                        string jsonPath = request.MetaFilePathFormatter?.Invoke(minimapPath, miniMapMeta);
+                        if (jsonPath == null)
+                            jsonPath = Path.Combine(minimapPath, "meta.json");
+                        File.WriteAllText(jsonPath, JsonSerializer.Serialize(miniMapMeta, jsonOpts));
+                    }
+
                     Console.WriteLine("hello");
                 }
             }
