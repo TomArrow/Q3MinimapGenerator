@@ -33,7 +33,7 @@ namespace Q3MinimapGenerator
         Action<string, byte[], string, object> _foundFileCallback = null;
         object _userData = null;
         bool _rethrow;
-        bool _generatingMinimap;
+        bool _foundFileProcessing;
         string pathRoot = "";
 
         public ZipRecursor(Regex fileSearchRegex, Action<string,byte[],string,object> foundFileCallback, bool trackVersions=false, object userData = null, bool rethrow = false)
@@ -550,8 +550,8 @@ namespace Q3MinimapGenerator
         private void PrintAndThrow(string message, Exception exception)
         {
             Debug.WriteLine(message, exception.Message);
-            bool allowRethrow = _generatingMinimap;
-            _generatingMinimap = false;
+            bool allowRethrow = _foundFileProcessing;
+            _foundFileProcessing = false;
             if (_rethrow && allowRethrow)
                 throw new Exception(message, exception);
         }
@@ -597,9 +597,9 @@ namespace Q3MinimapGenerator
             if (doProcess)
             {
                 string relPath = Path.GetRelativePath(pathRoot, path);
-                _generatingMinimap = true;
+                _foundFileProcessing = true;
                 _foundFileCallback(entryNameLower, version, relPath, _userData);
-                _generatingMinimap = false;
+                _foundFileProcessing = false;
             }
         }
 

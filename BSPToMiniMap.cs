@@ -214,10 +214,11 @@ namespace Q3MinimapGenerator
             int maxHeight = request.MaxHeight;
             int extraBorderUnits = request.ExtraBorderUnits;
             MiniMapAxisPlane requestedAxisPlane = request.AxisPlane;
+            ImageType imageType = request.ImageType;
             bool makeMeta = request.MakeMeta;
             var predicate = request.Predicate;
             Action<float> progressCallback = request.ProgressCallback;
-            CancellationToken? cancellationToken = request.CancellationToken;
+            CancellationToken cancellationToken = request.CancellationToken;
 
             bool isQ3 = false;
             string minimapPath = Path.Combine(minimapsPath, mapNameClean);
@@ -470,7 +471,16 @@ namespace Q3MinimapGenerator
                         zRes = maxHeight;
                     }
 
-                    for(int axis = 0; axis < 3; axis++)
+                    int percent = 0;
+                    float totalActions = 0.0f;
+                    if (requestedAxisPlane.HasFlag(MiniMapAxisPlane.XY))
+                        totalActions += xRes * yRes;
+                    if (requestedAxisPlane.HasFlag(MiniMapAxisPlane.XZ))
+                        totalActions += xRes * zRes;
+                    if (requestedAxisPlane.HasFlag(MiniMapAxisPlane.YZ))
+                        totalActions += yRes * zRes;
+
+                    for (int axis = 0; axis < 3; axis++)
                     {
                         if (((int)requestedAxisPlane & (1<<axis)) == 0)
                             continue;
@@ -525,17 +535,14 @@ namespace Q3MinimapGenerator
                                 break;
                         }
 
-                        int percent = 0;
-                        float totalActions = xResHere * yResHere;
-
                         float[] pixelData = new float[xResHere * yResHere];
                         float[] pixelDataDivider = new float[xResHere * yResHere];
 
-                        cancellationToken?.ThrowIfCancellationRequested();
+                        cancellationToken.ThrowIfCancellationRequested();
 
                         Parallel.For(0, yResHere, new ParallelOptions() {MaxDegreeOfParallelism= Environment.ProcessorCount/2 }, (y) =>
                         {
-                            cancellationToken?.ThrowIfCancellationRequested();
+                            cancellationToken.ThrowIfCancellationRequested();
                         //for(int y = 0; y < yRes; y++)
                         //{
                             for(int x = 0; x < xResHere; x++, Interlocked.Increment(ref percent), progressCallback?.Invoke(percent / totalActions))
@@ -583,10 +590,10 @@ namespace Q3MinimapGenerator
 
                         //float[] pixelDiffData = new float[xRes * yRes];
 
-                        cancellationToken?.ThrowIfCancellationRequested();
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                        var image = new Image<La16>(xResHere, yResHere);
-                        image.ProcessPixelRows(processor =>
+                        var imageRgba = new Image<Rgba32>(xResHere, yResHere);
+                        imageRgba.ProcessPixelRows(processor =>
                         {
                             // Kinda edge detection
                             for (int y = 0; y < processor.Height; y++)
@@ -599,7 +606,9 @@ namespace Q3MinimapGenerator
                                         byte color = (byte)Math.Clamp(255.0f * (pixelData[y * xResHere + x] / pixelDataDivider[y * xResHere + x] - 1.0f), 0, 255);
 
                                         ref var pixel = ref pixelRow[x];
-                                        pixel.L = Math.Max(pixel.L, color);
+                                        pixel.R = Math.Max(pixel.R, color);
+                                        pixel.G = Math.Max(pixel.G, color);
+                                        pixel.B = Math.Max(pixel.B, color);
                                         pixel.A = 255;
                                     }
                                     for (int yJitter = Math.Max(0, y - 1); yJitter < Math.Min(y + 1, yResHere); yJitter++)
@@ -612,7 +621,9 @@ namespace Q3MinimapGenerator
                                                 byte delta = (byte)Math.Clamp(255.0f * Math.Pow(Math.Abs(diff), 0.22f), 0, 255);
 
                                                 ref var pixel = ref pixelRow[x];
-                                                pixel.L = Math.Max(pixel.L, delta);
+                                                pixel.R = Math.Max(pixel.R, delta);
+                                                pixel.G = Math.Max(pixel.G, delta);
+                                                pixel.B = Math.Max(pixel.B, delta);
                                                 pixel.A = 255;
                                             }
                                         }
@@ -620,6 +631,9 @@ namespace Q3MinimapGenerator
                                 }
                             }
                         });
+                        Image image = imageRgba;
+                        if (imageType == ImageType.GrayscaleA)
+                            image = imageRgba.CloneAs<La16>();
 
                         string imagePath = request.ImageFilePathFormatter?.Invoke(minimapPath, axisName, miniMapMeta);
                         if (imagePath == null)
