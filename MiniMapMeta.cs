@@ -15,6 +15,11 @@ namespace Q3MinimapGenerator
         public float maxX { get; set; }
         public float maxY { get; set; }
         public float maxZ { get; set; }
+
+		public override string ToString()
+		{
+			return string.Format("{0:F0},{1:F0},{2:F0},{3:F0},{4:F0},{5:F0}",minX,minY,minZ,maxX,maxY,maxZ);
+		}
         /*
         public Vector2 GetTexturePositionXY(Vector3 position)
         {

@@ -18,7 +18,6 @@ namespace Q3MinimapGenerator
 {
     public class ZipRecursor
     {
-
         static Action<string> errorLogger = null;
 
         public static void SetErrorLogger(Action<string> errorLoggerA)
@@ -31,10 +30,13 @@ namespace Q3MinimapGenerator
         Dictionary<string, List<byte[]>> versions = new Dictionary<string, List<byte[]>>();
         Regex searchFile = null;
         bool _trackVersions = false;
-        Action<string, byte[], string> _foundFileCallback = null;
+        Action<string, byte[], string, object> _foundFileCallback = null;
+        object _userData = null;
+        bool _rethrow;
+        bool _foundFileProcessing;
         string pathRoot = "";
 
-        public ZipRecursor(Regex fileSearchRegex, Action<string,byte[],string> foundFileCallback, bool trackVersions=false)
+        public ZipRecursor(Regex fileSearchRegex, Action<string,byte[],string,object> foundFileCallback, bool trackVersions=false, object userData = null, bool rethrow = false)
         {
             if (fileSearchRegex is null || foundFileCallback is null)
             {
@@ -43,6 +45,8 @@ namespace Q3MinimapGenerator
             searchFile = fileSearchRegex;
             _trackVersions = trackVersions;
             _foundFileCallback = foundFileCallback;
+            _userData = userData;
+            _rethrow = rethrow;
         }
         public void HandleFolder(string folderPath)
         {
@@ -81,6 +85,8 @@ namespace Q3MinimapGenerator
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                    if (_rethrow)
+                        throw new Exception($"Error opening: {Path.Combine(folderPath, file)}", ex);
                 }
             }
             else if (file.EndsWith($".7z", StringComparison.OrdinalIgnoreCase))
@@ -95,6 +101,8 @@ namespace Q3MinimapGenerator
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                    if (_rethrow)
+                        throw;
                 }
             } else
             {
@@ -121,6 +129,8 @@ namespace Q3MinimapGenerator
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                        if (_rethrow)
+                            throw;
                     }
                 }
             }
@@ -189,7 +199,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                        PrintAndThrow($"Error opening: {Path.Combine(folderPath, file)}", ex);
                     }
                 }
                 else if (file.EndsWith($".7z", StringComparison.OrdinalIgnoreCase))
@@ -203,7 +213,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                        PrintAndThrow($"Error opening: {Path.Combine(folderPath, file)}", ex);
                     }
                 }
                 else
@@ -230,7 +240,7 @@ namespace Q3MinimapGenerator
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"Error opening: {Path.Combine(folderPath, file)}", ex.Message);
+                            PrintAndThrow($"Error opening: {Path.Combine(folderPath, file)}", ex);
                         }
                     }
                 }
@@ -281,7 +291,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {path}/{entry.FullName}", ex.Message);
+                        PrintAndThrow($"Error opening: {path}/{entry.FullName}", ex);
                     }
                 }
                 else if (entry.Name.EndsWith($".7z", StringComparison.OrdinalIgnoreCase))
@@ -298,7 +308,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {Path.Combine(path, entry.FullName)}", ex.Message);
+                        PrintAndThrow($"Error opening: {Path.Combine(path, entry.FullName)}", ex);
                     }
                 }
                 else
@@ -326,7 +336,7 @@ namespace Q3MinimapGenerator
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"Error opening: {Path.Combine(path, entry.FullName)}", ex.Message);
+                            PrintAndThrow($"Error opening: {Path.Combine(path, entry.FullName)}", ex);
                         }
                     }
                 }
@@ -361,7 +371,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {path}/{entry.Key}", ex.Message);
+                        PrintAndThrow($"Error opening: {path}/{entry.Key}", ex);
                     }
                 }
                 else if (entry.Key.EndsWith($".7z", StringComparison.OrdinalIgnoreCase))
@@ -378,7 +388,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {Path.Combine(path, entry.Key)}", ex.Message);
+                        PrintAndThrow($"Error opening: {Path.Combine(path, entry.Key)}", ex);
                     }
                 }
                 else
@@ -406,7 +416,7 @@ namespace Q3MinimapGenerator
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"Error opening: {Path.Combine(path, entry.Key)}", ex.Message);
+                            PrintAndThrow($"Error opening: {Path.Combine(path, entry.Key)}", ex);
                         }
                     }
                 }
@@ -442,7 +452,7 @@ namespace Q3MinimapGenerator
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"Error opening: {path}/{entry.Key}", ex.Message);
+                            PrintAndThrow($"Error opening: {path}/{entry.Key}", ex);
                         }
                     }
                     else if (entry.Key.EndsWith($".7z", StringComparison.OrdinalIgnoreCase))
@@ -459,7 +469,7 @@ namespace Q3MinimapGenerator
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"Error opening: {Path.Combine(path, entry.Key)}", ex.Message);
+                            PrintAndThrow($"Error opening: {Path.Combine(path, entry.Key)}", ex);
                         }
                     }
                     else
@@ -487,7 +497,7 @@ namespace Q3MinimapGenerator
                             }
                             catch (Exception ex)
                             {
-                                Debug.WriteLine($"Error opening: {Path.Combine(path, entry.Key)}", ex.Message);
+                                PrintAndThrow($"Error opening: {Path.Combine(path, entry.Key)}", ex);
                             }
                         }
                     }
@@ -518,7 +528,7 @@ namespace Q3MinimapGenerator
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"Error opening: {path}/{entry.Name}", ex.Message);
+                        PrintAndThrow($"Error opening: {path}/{entry.Name}", ex.Message);
                     }
                 }
                 if (searchFile.Match(entry.Name).Success)
@@ -528,6 +538,22 @@ namespace Q3MinimapGenerator
 
                 }
             }*/
+        }
+
+        private void PrintAndThrow(Exception exception)
+        {
+            Debug.WriteLine(exception.ToString());
+            if (_rethrow)
+                throw exception;
+        }
+
+        private void PrintAndThrow(string message, Exception exception)
+        {
+            Debug.WriteLine(message, exception.Message);
+            bool allowRethrow = _foundFileProcessing;
+            _foundFileProcessing = false;
+            if (_rethrow && allowRethrow)
+                throw new Exception(message, exception);
         }
 
         void HandleMatchedFile(string fileName, string path, byte[] version)
@@ -571,7 +597,9 @@ namespace Q3MinimapGenerator
             if (doProcess)
             {
                 string relPath = Path.GetRelativePath(pathRoot, path);
-                _foundFileCallback(entryNameLower, version, relPath);
+                _foundFileProcessing = true;
+                _foundFileCallback(entryNameLower, version, relPath, _userData);
+                _foundFileProcessing = false;
             }
         }
 

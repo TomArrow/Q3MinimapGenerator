@@ -1,17 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
-using System.Drawing;
-using System.Drawing.Imaging;
+using System.Text.RegularExpressions;
 
 namespace Q3MinimapGenerator
 {
-
     public class ByteImage
     {
         public byte[] imageData;
@@ -49,10 +48,58 @@ namespace Q3MinimapGenerator
 
     public static class Helpers
     {
+        public static void GenerateMiniMap(in string inputFolderPath, in MiniMapRequest? request = null, bool rethrow = false)
+        {
+            var bspRegex = new Regex(@"\.bsp$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var zipRecursor = new ZipRecursor(bspRegex, MakeMinimapFromBSP, userData: request, rethrow: rethrow);
+            zipRecursor.HandleFolder(inputFolderPath);
+        }
+
+        static void MakeMinimapFromBSP(string filename, byte[] fileData, string path, object userData = null)
+        {
+            Stack<string> pathStack = new Stack<string>();
+            string[] pathPartsArr = path is null ? new string[0] : path.Split(new char[] { '\\', '/' });
+            bool mapsFolderFound = false;
+            for (int i = pathPartsArr.Length - 1; i >= 0; i--)
+            {
+                string pathPart = pathPartsArr[i];
+                if (pathPart.Equals("maps", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    mapsFolderFound = true;
+                    break;
+                }
+                else if (pathPart.EndsWith(".pk3", StringComparison.InvariantCultureIgnoreCase) || pathPart.EndsWith(".zip", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    // this is weird. must be some weird isolated file
+                    pathStack.Clear();
+                    break;
+                }
+                else
+                {
+                    pathStack.Push(pathPart);
+                }
+            }
+            if (!mapsFolderFound)
+            {
+                pathStack.Clear();
+            }
+            // TODO What if there is some maps folder really low in the hierarchy?
+            var sb = new StringBuilder();
+            while (pathStack.Count > 0)
+            {
+                sb.Append(pathStack.Pop());
+                sb.Append(Path.DirectorySeparatorChar);
+            }
+            sb.Append(Path.GetFileNameWithoutExtension(filename));
+            string mapname = sb.ToString();
+            Debug.WriteLine($"Found {filename} ({mapname}) in {path}");
+
+            var request = (userData as MiniMapRequest?) ?? default;
+            BSPToMiniMap.MakeMiniMap(mapname, fileData, request);
+        }
 
         public static ByteImage BitmapToByteArray(Bitmap bmp)
         {
-
             // Lock the bitmap's bits.  
             Rectangle rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
             System.Drawing.Imaging.BitmapData bmpData =
