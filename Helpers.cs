@@ -94,7 +94,7 @@ namespace Q3MinimapGenerator
             string mapname = sb.ToString();
             Debug.WriteLine($"Found {filename} ({mapname}) in {path}");
 
-            var request = (userData as MiniMapRequest?) ?? default;
+            var request = (userData as MiniMapRequest) ?? new();
             BSPToMiniMap.MakeMiniMap(mapname, fileData, request);
         }
 

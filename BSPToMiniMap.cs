@@ -208,6 +208,7 @@ namespace Q3MinimapGenerator
 
         public static unsafe void MakeMiniMap(string mapNameClean, byte[] bspData, MiniMapRequest request = default)
         {
+            request ??= new();
             string minimapsPath = request.OutputFolderPath ?? minimapsPathDefault;
             float pixelsPerUnit = request.PixelsPerUnit;
             int maxWidth = request.MaxWidth;

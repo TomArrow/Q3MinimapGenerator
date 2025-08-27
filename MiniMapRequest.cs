@@ -5,7 +5,7 @@ using System.Threading;
 namespace Q3MinimapGenerator
 {
     //struct so (default) one passes default values
-    public struct MiniMapRequest
+    public class MiniMapRequest
     {
         public string OutputFolderPath { get; init; } = null;
         public float PixelsPerUnit { get; init; } = 0.1f;
